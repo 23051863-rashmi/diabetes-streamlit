@@ -24,7 +24,7 @@ def load_model():
     from sklearn import svm
 
     # Load the diabetes dataset
-    df = pd.read_csv("/content/diabetes.csv")
+    df = pd.read_csv("diabetes.csv")
 
     # Separate features and labels
     X = df.drop(columns="Outcome", axis=1)
