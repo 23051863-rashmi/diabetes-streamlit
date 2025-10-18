@@ -71,9 +71,30 @@ def run_inference(model_and_scaler, input_text):
 
 model = load_model()
 
-st.title("My Streamlit app — converted from Colab")
-st.sidebar.header("Inputs")
-text = st.sidebar.text_area("Enter input", height=200)
+st.title("Diabetes_Detection GROUP_3 Project")
+st.title("Diabetes Prediction App 🩺")
+
+st.subheader("Enter Patient Details:")
+
+# Arrange inputs in a clean 2-column layout
+col1, col2 = st.columns(2)
+
+with col1:
+    pregnancies = st.number_input("Pregnancies", min_value=0, max_value=20, value=1)
+    blood_pressure = st.number_input("Blood Pressure (mm Hg)", min_value=0, max_value=200, value=70)
+    insulin = st.number_input("Insulin (mu U/ml)", min_value=0, max_value=900, value=80)
+    dpf = st.number_input("Diabetes Pedigree Function", min_value=0.0, max_value=2.5, value=0.5, format="%.3f")
+
+with col2:
+    glucose = st.number_input("Glucose Level", min_value=0, max_value=300, value=120)
+    skin_thickness = st.number_input("Skin Thickness (mm)", min_value=0, max_value=100, value=20)
+    bmi = st.number_input("BMI", min_value=0.0, max_value=70.0, value=25.0, format="%.1f")
+    age = st.number_input("Age", min_value=1, max_value=120, value=33)
+
+# Combine inputs into a single string for model inference
+text = f"{pregnancies},{glucose},{blood_pressure},{skin_thickness},{insulin},{bmi},{dpf},{age}"
+
+
 
 import traceback
 
