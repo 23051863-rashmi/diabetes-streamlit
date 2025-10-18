@@ -1,0 +1,496 @@
+# --- Likely model-loading related cells ---
+
+# cell 29
+# ====== One-shot setup + AUTO-CONVERT NOTEBOOK -> STREAMLIT APP ======
+# Run this in a single Colab code cell.
+
+# 1) Mount Google Drive (you'll be prompted to authenticate)
+from google.colab import drive
+drive.mount('/content/drive')
+
+# 2) Install Streamlit (Python) and LocalTunnel (npm)
+#    localtunnel is a Node package; use npm to install globally.
+!pip install -q streamlit
+!npm install -g localtunnel
+
+# 3) AUTO-CONVERT script: reads a .ipynb and writes a Streamlit app scaffold
+import os, re, nbformat, textwrap, json
+from nbformat import read
+
+# ==== EDIT THIS PATH if your notebook is elsewhere; keep the filename and .ipynb ====
+NB_PATH = "/content/drive/MyDrive/Colab Notebooks/DiabetesPrediction.ipynb"
+OUT_DIR = "/content/streamlit_app"
+os.makedirs(OUT_DIR, exist_ok=True)
+
+def load_notebook(nb_path):
+    if not os.path.exists(nb_path):
+        raise FileNotFoundError(f"Notebook not found at: {nb_path}")
+    with open(nb_path, "r", encoding="utf-8") as f:
+        return nbformat.read(f, as_version=4)
+
+def extract_code_cells(nb):
+    cells = []
+    for cell in nb.cells:
+        if cell.cell_type == "code":
+            src = cell.source
+            if isinstance(src, list):
+                src = "".join(src)
+            cells.append(src)
+    return cells
+
+def guess_imports(cells):
+    imports = set()
+    pattern = re.compile(r'^\s*(?:import|from)\s+([A-Za-z0-9_.]+)', re.MULTILINE)
+    for c in cells:
+        for m in pattern.findall(c):
+            imports.add(m.split('.')[0])
+    # always include streamlit
+    imports.add("streamlit")
+    commons = ["numpy","pandas","sklearn","joblib","torch","tensorflow","transformers","requests"]
+    reqs = []
+    for module in sorted(imports):
+        if module in commons:
+            reqs.append(module)
+    for module in sorted(imports):
+        if module not in commons:
+            reqs.append(module)
+    return reqs
+
+def find_cells_with_keywords(cells, keywords):
+    matched = []
+    for i, c in enumerate(cells):
+        low = c.lower()
+        if any(k in low for k in keywords):
+            matched.append((i, c))
+    return matched
+
+# ==== Run conversion ====
+try:
+    nb = load_notebook(NB_PATH)
+except FileNotFoundError as e:
+    print("ERROR:", e)
+    print("Run `!ls '/content/drive/MyDrive'` or check the path and edit NB_PATH accordingly, then re-run this cell.")
+    raise
+
+cells = extract_code_cells(nb)
+
+load_cells = find_cells_with_keywords(cells, ["load_model", "load model", "torch.load", "tf.keras", "from joblib", "joblib.load", "pickle.load"])
+infer_cells = find_cells_with_keywords(cells, ["predict(", "predict_proba", "inference", "tokenize(", "model(", "generate("])
+preproc_cells = find_cells_with_keywords(cells, ["preprocess", "transform(", "vectorize(", "tokenizer"])
+
+if not load_cells and len(cells) > 0:
+    load_cells = [(0, cells[0])]
+if not infer_cells and len(cells) > 1:
+    infer_cells = [(1, cells[1])]
+
+# Build app.py text (safe docstrings and formatting)
+imports_head = "\n".join(['import ' + m for m in guess_imports(cells)[:12]])
+
+app_py = f'''# Auto-generated Streamlit app skeleton from notebook: {os.path.basename(NB_PATH)}
+# You MUST edit load_model() and run_inference() below to match logic from your notebook.
+
+import streamlit as st
+import time
+import os
+{imports_head}
+
+st.set_page_config(page_title="Converted Streamlit App", layout="wide")
+
+@st.cache_resource(show_spinner=False)
+def load_model():
+    """
+    Paste or adapt your model-loading code here (from your notebook).
+    The auto-extractor found {len(load_cells)} candidate cell(s) for model loading.
+    Look in the file 'notebook_helpers.txt' for the extracted snippets.
+    """
+    # Example placeholder (replace with your actual loader):
+    # from joblib import load
+    # return load("/path/to/model.joblib")
+    return None
+
+def run_inference(model, input_text):
+    """
+    Paste or adapt your inference logic here (from your notebook).
+    The auto-extractor found {len(infer_cells)} candidate cell(s) for inference.
+    Look in the file 'notebook_helpers.txt' for the extracted snippets.
+    """
+    # Simple placeholder — replace this with your real inference code:
+    return {{"result": input_text}}
+
+model = load_model()
+
+st.title("My Streamlit app — converted from Colab")
+st.sidebar.header("Inputs")
+text = st.sidebar.text_area("Enter input", height=200)
+
+import traceback
+
+if st.button("Run"):
+    t0 = time.time()
+    try:
+        res = run_inference(model, text)
+    except Exception as exc:
+        st.error(f"Error while running inference: {{exc}}")
+        st.text(traceback.format_exc())
+        res = None
+    finally:
+        t1 = time.time()
+        st.info(f"Done — {{t1 - t0:.2f}}s")
+
+    if res is not None:
+        st.write(res)
+
+# show some sample data / debug
+if st.sidebar.checkbox("Show raw notebook snippets"):
+    st.subheader("Extracted notebook snippets (for you to paste in load_model/run_inference)")
+    with st.expander("Notebook snippets"):
+        import pathlib
+        filepath = pathlib.Path("notebook_helpers.txt")
+        if filepath.exists():
+            st.code(filepath.read_text(), language="python")
+        else:
+            st.write("No snippets found.")
+'''
+
+# Write app.py
+with open(os.path.join(OUT_DIR, "app.py"), "w", encoding="utf-8") as f:
+    f.write(app_py)
+
+# Write notebook_helpers.txt (useful snippets for copy/paste)
+helpers = []
+helpers.append("# --- Likely model-loading related cells ---\n")
+for i,c in load_cells:
+    helpers.append(f"# cell {i}\n{c}\n\n")
+helpers.append("# --- Likely inference/preprocessing related cells ---\n")
+for i,c in infer_cells:
+    helpers.append(f"# cell {i}\n{c}\n\n")
+helpers.append("# --- Other code cells (first 10) ---\n")
+for i,c in list(enumerate(cells))[:10]:
+    helpers.append(f"# cell {i}\n{c}\n\n")
+
+with open(os.path.join(OUT_DIR, "notebook_helpers.txt"), "w", encoding="utf-8") as f:
+    f.write("\n".join(helpers))
+
+# Build a best-effort requirements.txt
+requirements = guess_imports(cells)
+if "streamlit" not in requirements:
+    requirements.insert(0, "streamlit")
+req_txt = "\n".join(requirements)
+with open(os.path.join(OUT_DIR, "requirements.txt"), "w", encoding="utf-8") as f:
+    f.write(req_txt)
+
+print("Wrote files to:", OUT_DIR)
+print("Files created:", os.listdir(OUT_DIR))
+print("\nNext steps (copy-paste and edit 'app.py' and 'notebook_helpers.txt'):\n")
+print(textwrap.dedent(f'''
+  1) Open: {OUT_DIR}/notebook_helpers.txt — copy the model-loading & inference snippets into
+     load_model() and run_inference() functions inside {OUT_DIR}/app.py.
+
+  2) To test the app in Colab (after editing app.py):
+       %cd {OUT_DIR}
+       !pip install -q streamlit
+       !streamlit run app.py --server.port 8501 & npx localtunnel --port 8501
+
+     (The command above will print a public URL from localtunnel; open it in your browser.)
+
+  3) To push to GitHub: create a repo and push the contents of {OUT_DIR}.
+     On Streamlit Cloud (share.streamlit.io) you can deploy directly from that GitHub repo.
+
+  4) If your model file is large (>50-100MB), host it externally (Google Drive / S3) and
+     add code in load_model() to download it at runtime and cache with @st.cache_resource.
+
+'''))
+
+
+
+# --- Likely inference/preprocessing related cells ---
+
+# cell 21
+# accuracy score on the training data
+X_train_prediction = classifier.predict(X_train)
+training_data_accuracy = accuracy_score(X_train_prediction, Y_train)
+
+
+# cell 23
+# accuracy score on the test data
+X_test_prediction = classifier.predict(X_test)
+test_data_accuracy = accuracy_score(X_test_prediction, Y_test)
+
+
+# cell 25
+input_data = (5,166,72,19,175,25.8,0.587,51)
+
+# changing the input_data to numpy array
+input_data_as_numpy_array = np.asarray(input_data)
+
+# reshape the array as we are predicting for one instance
+input_data_reshaped = input_data_as_numpy_array.reshape(1,-1)
+
+# standardize the input data
+std_data = scaler.transform(input_data_reshaped)
+print(std_data)
+
+prediction = classifier.predict(std_data)
+print(prediction)
+
+if (prediction[0] == 0):
+  print('The person is not diabetic')
+else:
+  print('The person is diabetic')
+
+
+# cell 29
+# ====== One-shot setup + AUTO-CONVERT NOTEBOOK -> STREAMLIT APP ======
+# Run this in a single Colab code cell.
+
+# 1) Mount Google Drive (you'll be prompted to authenticate)
+from google.colab import drive
+drive.mount('/content/drive')
+
+# 2) Install Streamlit (Python) and LocalTunnel (npm)
+#    localtunnel is a Node package; use npm to install globally.
+!pip install -q streamlit
+!npm install -g localtunnel
+
+# 3) AUTO-CONVERT script: reads a .ipynb and writes a Streamlit app scaffold
+import os, re, nbformat, textwrap, json
+from nbformat import read
+
+# ==== EDIT THIS PATH if your notebook is elsewhere; keep the filename and .ipynb ====
+NB_PATH = "/content/drive/MyDrive/Colab Notebooks/DiabetesPrediction.ipynb"
+OUT_DIR = "/content/streamlit_app"
+os.makedirs(OUT_DIR, exist_ok=True)
+
+def load_notebook(nb_path):
+    if not os.path.exists(nb_path):
+        raise FileNotFoundError(f"Notebook not found at: {nb_path}")
+    with open(nb_path, "r", encoding="utf-8") as f:
+        return nbformat.read(f, as_version=4)
+
+def extract_code_cells(nb):
+    cells = []
+    for cell in nb.cells:
+        if cell.cell_type == "code":
+            src = cell.source
+            if isinstance(src, list):
+                src = "".join(src)
+            cells.append(src)
+    return cells
+
+def guess_imports(cells):
+    imports = set()
+    pattern = re.compile(r'^\s*(?:import|from)\s+([A-Za-z0-9_.]+)', re.MULTILINE)
+    for c in cells:
+        for m in pattern.findall(c):
+            imports.add(m.split('.')[0])
+    # always include streamlit
+    imports.add("streamlit")
+    commons = ["numpy","pandas","sklearn","joblib","torch","tensorflow","transformers","requests"]
+    reqs = []
+    for module in sorted(imports):
+        if module in commons:
+            reqs.append(module)
+    for module in sorted(imports):
+        if module not in commons:
+            reqs.append(module)
+    return reqs
+
+def find_cells_with_keywords(cells, keywords):
+    matched = []
+    for i, c in enumerate(cells):
+        low = c.lower()
+        if any(k in low for k in keywords):
+            matched.append((i, c))
+    return matched
+
+# ==== Run conversion ====
+try:
+    nb = load_notebook(NB_PATH)
+except FileNotFoundError as e:
+    print("ERROR:", e)
+    print("Run `!ls '/content/drive/MyDrive'` or check the path and edit NB_PATH accordingly, then re-run this cell.")
+    raise
+
+cells = extract_code_cells(nb)
+
+load_cells = find_cells_with_keywords(cells, ["load_model", "load model", "torch.load", "tf.keras", "from joblib", "joblib.load", "pickle.load"])
+infer_cells = find_cells_with_keywords(cells, ["predict(", "predict_proba", "inference", "tokenize(", "model(", "generate("])
+preproc_cells = find_cells_with_keywords(cells, ["preprocess", "transform(", "vectorize(", "tokenizer"])
+
+if not load_cells and len(cells) > 0:
+    load_cells = [(0, cells[0])]
+if not infer_cells and len(cells) > 1:
+    infer_cells = [(1, cells[1])]
+
+# Build app.py text (safe docstrings and formatting)
+imports_head = "\n".join(['import ' + m for m in guess_imports(cells)[:12]])
+
+app_py = f'''# Auto-generated Streamlit app skeleton from notebook: {os.path.basename(NB_PATH)}
+# You MUST edit load_model() and run_inference() below to match logic from your notebook.
+
+import streamlit as st
+import time
+import os
+{imports_head}
+
+st.set_page_config(page_title="Converted Streamlit App", layout="wide")
+
+@st.cache_resource(show_spinner=False)
+def load_model():
+    """
+    Paste or adapt your model-loading code here (from your notebook).
+    The auto-extractor found {len(load_cells)} candidate cell(s) for model loading.
+    Look in the file 'notebook_helpers.txt' for the extracted snippets.
+    """
+    # Example placeholder (replace with your actual loader):
+    # from joblib import load
+    # return load("/path/to/model.joblib")
+    return None
+
+def run_inference(model, input_text):
+    """
+    Paste or adapt your inference logic here (from your notebook).
+    The auto-extractor found {len(infer_cells)} candidate cell(s) for inference.
+    Look in the file 'notebook_helpers.txt' for the extracted snippets.
+    """
+    # Simple placeholder — replace this with your real inference code:
+    return {{"result": input_text}}
+
+model = load_model()
+
+st.title("My Streamlit app — converted from Colab")
+st.sidebar.header("Inputs")
+text = st.sidebar.text_area("Enter input", height=200)
+
+import traceback
+
+if st.button("Run"):
+    t0 = time.time()
+    try:
+        res = run_inference(model, text)
+    except Exception as exc:
+        st.error(f"Error while running inference: {{exc}}")
+        st.text(traceback.format_exc())
+        res = None
+    finally:
+        t1 = time.time()
+        st.info(f"Done — {{t1 - t0:.2f}}s")
+
+    if res is not None:
+        st.write(res)
+
+# show some sample data / debug
+if st.sidebar.checkbox("Show raw notebook snippets"):
+    st.subheader("Extracted notebook snippets (for you to paste in load_model/run_inference)")
+    with st.expander("Notebook snippets"):
+        import pathlib
+        filepath = pathlib.Path("notebook_helpers.txt")
+        if filepath.exists():
+            st.code(filepath.read_text(), language="python")
+        else:
+            st.write("No snippets found.")
+'''
+
+# Write app.py
+with open(os.path.join(OUT_DIR, "app.py"), "w", encoding="utf-8") as f:
+    f.write(app_py)
+
+# Write notebook_helpers.txt (useful snippets for copy/paste)
+helpers = []
+helpers.append("# --- Likely model-loading related cells ---\n")
+for i,c in load_cells:
+    helpers.append(f"# cell {i}\n{c}\n\n")
+helpers.append("# --- Likely inference/preprocessing related cells ---\n")
+for i,c in infer_cells:
+    helpers.append(f"# cell {i}\n{c}\n\n")
+helpers.append("# --- Other code cells (first 10) ---\n")
+for i,c in list(enumerate(cells))[:10]:
+    helpers.append(f"# cell {i}\n{c}\n\n")
+
+with open(os.path.join(OUT_DIR, "notebook_helpers.txt"), "w", encoding="utf-8") as f:
+    f.write("\n".join(helpers))
+
+# Build a best-effort requirements.txt
+requirements = guess_imports(cells)
+if "streamlit" not in requirements:
+    requirements.insert(0, "streamlit")
+req_txt = "\n".join(requirements)
+with open(os.path.join(OUT_DIR, "requirements.txt"), "w", encoding="utf-8") as f:
+    f.write(req_txt)
+
+print("Wrote files to:", OUT_DIR)
+print("Files created:", os.listdir(OUT_DIR))
+print("\nNext steps (copy-paste and edit 'app.py' and 'notebook_helpers.txt'):\n")
+print(textwrap.dedent(f'''
+  1) Open: {OUT_DIR}/notebook_helpers.txt — copy the model-loading & inference snippets into
+     load_model() and run_inference() functions inside {OUT_DIR}/app.py.
+
+  2) To test the app in Colab (after editing app.py):
+       %cd {OUT_DIR}
+       !pip install -q streamlit
+       !streamlit run app.py --server.port 8501 & npx localtunnel --port 8501
+
+     (The command above will print a public URL from localtunnel; open it in your browser.)
+
+  3) To push to GitHub: create a repo and push the contents of {OUT_DIR}.
+     On Streamlit Cloud (share.streamlit.io) you can deploy directly from that GitHub repo.
+
+  4) If your model file is large (>50-100MB), host it externally (Google Drive / S3) and
+     add code in load_model() to download it at runtime and cache with @st.cache_resource.
+
+'''))
+
+
+
+# --- Other code cells (first 10) ---
+
+# cell 0
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn import svm
+from sklearn.metrics import accuracy_score
+
+
+# cell 1
+# loading the diabetes dataset to a pandas DataFrame
+diabetes_dataset = pd.read_csv('/content/diabetes.csv')
+
+
+# cell 2
+pd.read_csv?
+
+
+# cell 3
+# printing the first 5 rows of the dataset
+diabetes_dataset.head()
+
+
+# cell 4
+# number of rows and Columns in this dataset
+diabetes_dataset.shape
+
+
+# cell 5
+# getting the statistical measures of the data
+diabetes_dataset.describe()
+
+
+# cell 6
+diabetes_dataset['Outcome'].value_counts()
+
+
+# cell 7
+diabetes_dataset.groupby('Outcome').mean()
+
+
+# cell 8
+# separating the data and labels
+X = diabetes_dataset.drop(columns = 'Outcome', axis=1)
+Y = diabetes_dataset['Outcome']
+
+
+# cell 9
+print(X)
+
