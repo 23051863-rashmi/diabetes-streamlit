@@ -71,8 +71,8 @@ def run_inference(model_and_scaler, input_text):
 
 model = load_model()
 
-st.title("Diabetes_Detection GROUP_3 Project")
-st.title("Diabetes Prediction App 🩺")
+
+st.title("Diabetes Prediction App 🩺-GROUP 3")
 
 st.subheader("Enter Patient Details:")
 
