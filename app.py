@@ -72,7 +72,7 @@ def run_inference(model_and_scaler, input_text):
 model = load_model()
 
 
-st.title("Diabetes Prediction App 🩺 - GROUP 3(DMDW)")
+st.title("Diabetes Prediction App 🩺 - SAVITA KUMARI ")
 
 st.subheader("Enter Patient Details:")
 
